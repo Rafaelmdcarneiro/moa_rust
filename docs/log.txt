@@ -1,0 +1,493 @@
+
+[Note: until the dashed line is logs pieced together after the fact]
+
+Project Start
+=============
+
+- 2021-09-28: started the project, computie monitor working after a week
+- 2021-10-08: I think the Computie OS could boot by this point
+- 2021-10-14: I think I started working on the genesis at this point, or maybe a bit before
+- 2021-10-20: added frontend refactoring
+- 2021-10-25: added Sega Genesis peripherals for the first time, even though I think I had been
+  working on it for at least a couple weeks by that point
+- 2021-10-27: added minifb frontend
+- 2021-11-01 to 2021-11-11: worked on the Z80/TRS-80
+- 2021-11-13: was working on Mac (and Genesis a bit)
+- 2021-11-28: took up the Genesis again after posting first article
+
+
+Genesis
+=======
+
+before 2021-10-25
+- controllers and coproc controls aren't an issue as dummies until much later
+- implement dma
+- try implementing the scrolls and get nothing
+- try printing just the patterns and get nothing
+- cram is 0s, fight and find a few dma/transfer bugs
+- cram is then sorta working, getting 0xeee and 0xee0 colours, but showing as pink
+- turns out to be index issue into cram, fixing makes colours ok, but still nothing on screen
+
+
+2021-10-25
+- still nothing on the screen.
+- maybe it's not working because I haven't implemented the h/v blanking bits at all, so I add
+  them and it makes something appear instead of blackness.  At least for Sonic 2, it waits
+  for the vblank bit to be set
+
+2021-10-26
+- what caused those pink screens I was initialling getting?!?  there was an issue with the cram
+  not being correct, and I remember fighting a ton with that...
+- it was caused by the cram being byte-wise, but the index into the array when fetching the
+  colour was not multiplied by 2, so the colours were wrong.  It was fixed in commit 109ae4d
+
+- add the BusPort thing to fix issues with how data is written.  Some writes can bet 4 bytes, or
+  2 bytes, and they could be to the same address or the adjacent address, so adding BusPort,
+  which breaks up the reads into all 2 bytes reads as the real hardware would see simplifies
+  the number of cases to deal with when accepting data on the VDP ports
+
+2021-10-27
+- oct. 27, commit 109ae4d doesn't seem to work and it seems to be related to the interrupts not,
+  which I got working in the immediately following commit.  It actually does work but is super
+  slow to display anything, which was fixed later, as in minutes before the screen goes white
+  to display the sega logo.  The interrupt print log is very slow, only a few interrupts in a
+  minute
+
+2021-10-29
+- the next commit 250c0 speeds things up by making the step function occur less often for the vdp
+  Also this commit adds code to change the interrupt mask, but only if a hardware interrupt occurs
+  I think this was causing problems with the computie binaries.  There's still an int bug
+
+- commit 93c080e: finally fix interrupts properly.  The code I was using before didn't properly
+  reset the interrupt signal, so it couldn't reoccur.  The CPU now checks the interrupt controller
+  each cycle for a pending interrupt, rather than relying on a callback and the Interruptable trait
+  which I partially removed.
+- it now actually runs and shows the screens at a reasonable speed
+
+- I recall there was an issue with the pattern indexing using the wrong formula to calculate, and
+  that caused some of the issues
+
+
+-----------------------------
+
+2021-10-31
+- at this point I had finally gotten the scrolls to work enough to print the SEGA logo at the start
+
+2021-11-01
+- started working on the Z80 and TRS-80 implementations, as well as debugging the Mac stuff, which
+  I think I was doing for most of November (instead of working on the Genesis impl)
+
+
+Macintosh
+=========
+
+- ram self test is run by jumping to 0x400694, which returns by jumping to %a6 which contains 0x4000f0
+  if it returns with eq set, it will jump to the system initialization at 0x40026c
+  it doesn't have eq set, so it ends up in an infinite loop.
+- turns out MOVEM was broken such that it was incrementing instead of decrementing address (found by
+  inspecting the first byte of memory when trying to get 0x5555AAAA to cancel itself out
+
+2021-11-19
+- still not working, calling 0x4000f0 to fail.  Turns out this is where the dead mac is supposed to
+  be printed, but it's not (found that from another blog post)
+
+2021-11-23
+- finally got dead mac screen showing with 0F0003 as the error.  It wasn't showing because the 0 colour
+  used by the genesis, which is a mask colour, causes nothing to appear
+- then the issue was the indexing of the memory page (x * 2) * y instead of (x * 2) + (y * 512/8)
+
+- so the 0F0003 dead mac was caused by the first trap instruction in the ROM, appearing at 4002adc
+  It causes an illegal instruction, which then jumps to the exception entry points start at 4001aa
+  in rom which all jump to the same function at 4001d2, which then ends up in the failure
+- trying to find why, i traced the program to find where the trap table was being set up, which
+  turned out to be around 400448 which is where I'd been debugging the last issue.  It sets location
+  0x28 to 401018 which is the trap handler...
+- 0x28 is not the illegal instruction handler, it's the 1010 line emulator exception... 1010 as it A
+  as in the A line traps... So the m68k is specifically not handling the a000 instructions correctly
+
+- it's now getting past the dead mac, but instead it causes two writes to read only memory when it
+  tries to set some bits indirectly to an address in rom (0x4034ae), which is something do with the
+  drivers. The Sound and Disk drivers are opened and it's during each of the open functions that the
+  write occurs
+- it's possible to continue (which might be in broken state) and it then attempts to write to
+  sequential addresses in upper ram which eventually spills over into 0x100000 which isn't mapped...
+  No idea if this is just because of something going wrong earlier, or if this is also an emulator bug
+
+- the writes to rom issues happens during InitIO (0x400614), when initializing the first two drivers,
+  the Sound and Disk (I think).  There is a pointer to a pointer to a value that contains 0x4034ae,
+  which seems to be calculated from a jump table, presumably pointing to something in rom that contains
+  the driver, but for some reason the code is bit setting that value.  I'm not sure if the data is wrong
+  and it should normally see a 0 instead of the rom addr, or if there's a branch that shouldn't/should
+  happen that leads it to that code when it shouldn't
+- c4c and c7c seem to be driver descriptors of some kind, each with a rom addr and what seems to be some
+  flags after that.  They also have 0xfffb and 0xfffc.  That said, if there's a bug in the code that
+  creates that data, it would likely be broken for both
+
+
+Back to Genesis
+===============
+
+2021-11-30
+- after getting things working somewhat with the scrolls, but not the sprites, I finally found
+  ComradeOj's demo, which I'm now using to test with, and I've also got BlastEm setup so that I
+  can compile the code and modify it to print out all of vram so that I can verify against mine
+
+- there is a difference in VRAM in the patterns section with non-zero data starting at VRAM:0020
+  the first differing byte is VRAM:0046 which is 0x1111 in my VDP but 0x0000 in blastem's VDP
+- checked what data was actually being transferred to VRAM, the source data is in ram at 0xff2000
+  (ie. 0xff2000 is copied to VRAM:0020 for some number of bytes, maybe 256 or so)
+- ram copy of data is incorrect so the problem is not the VDP code specifically, but the code
+  that loads the ram.
+- traced it further to the decompress function called at 0x00c0, this function definitely loads
+  the source ram and it's definitely incorrect long before the actual VRAM is loaded
+
+- so I set a breakpoint at c0 in blastem, and then at that point set 266 and continued until the
+  first different byte was loaded, and inspected all the CPU registers at that point.  The only
+  one differing is %d6 which holds a copy of the flags, which is somehow/somewhere restored after
+  being saved.  It's 0x2700 in blastem but 0x2710 in moa...
+- so far I'm suspecting that the Extend flag is not being correctly simulated somewhere, and
+  that's causing problems.  The code uses roxd instructions which use the Extend flag... sus
+- the two places where %d6 is set in the decompress function are just after LSR instructions.
+  I didn't have tests for LSR or LSL, so adding some caught the issue where Extend is not cleared
+  by the instruction nor by the logic flags code (since most logic instructions don't affect extend)
+- fixing this made the text of the demo appear correctly, along with colour changing of the text,
+  but the background is not rendering at all
+
+- switching gears now, trying GenTestV3.  A write to read only memory occurs at 0x2976 because %a4
+  is 0 when it should be the VDP data register (0xC00000)
+- tracing back, there is some code run at 0x2572 which causes the registers to be cleared, but
+  checking in BlastEm's debugger with a breakpoint there shows it's not executing there, so this
+  is a problem in moa and it's caused an erroneous processor state...
+- there's a comparison at 0x255e which jumps to the code that shouldn't run, checking in BlastEm
+  shows that the previous comparison should not be equal (flags are 0x2700), but in moa it's 0x2704
+- the comparison is correct, but the value in %d7/%d3 should be 0xff instead of 0xef
+- at 0x2a78 the values are read from the controller inputs 0xa10003, and this is what's not correct
+  the data read is 0 but should be something else I think (start of code is 0x2a4a)
+- it appears that the controller inputs should be 1s instead of 0s when not pressed?? or when all
+  bits are 0?
+- changing to that behaviour makes it work until the ram test is invoked, but it seems that BlastEm
+  also does write to address 0 when the RAM test is run...
+- the writing to address 0 might be an unintentional bug in the rom, which doesn't otherwise affect
+  anything because removing read_only makes it work enough to run
+
+- next issue is controllers, it turns out the button logic is inverted, so the rom expects to read
+  all 1s (0xfff) for the button states, and a bit will drop to 0 when it's pressed.
+- now there's an issue with the 'a' button to go to the info screen where it sometimes seems to run
+  the memory test instead, or otherwise behave inconsistently, and it's probably that 1.5ms delay
+  that resets the cycle to avoid the extra 3 buttons.  This rom probably only reads the first 3 and
+  expects the counter to reset
+- turned out that i actually need to reset the th counter after the ctrl port is written to, and the
+  count/next_byte logic was broken, so the buttons were incorrectly mapped
+
+- now the test works, memory tests work, and so far looking at the info pages, the sprites are almost
+  correct, but sonic is busted.  It might be something to do with the sprite being reversed
+
+2021-12-04
+- colour bleed test: 0x230a
+- there are two of the four bars of colours with the rest black except some garbage at the bottom.
+- I was able to modify the pattern printing to put a white dot in the upper corner so I could count
+  the cells to figure out where in memory the garbage pixels were appearing.  The garbage starts on
+  a ways into line 23 and continues on lines 24/25/26, where the scroll is 64 cells across, and the
+  start of scroll a is 0xE000, which makes 0xEB80 about the start of the garbled line.
+- the cells in the table look correct here, each line contains increasing pattern numbers (0x0518 at
+  the garbled cells), so the problem isn't here
+- looking at the pattern for 0x518, which corresponds to address 0xA300 in video memory, the data is
+  not at all like the regular patterns at the start of VRAM.  Comparing it to blastem shows the VRAM
+  is correctly regular (0x1111 or 0x5151 and other regular repeating patterns), so it looks like
+  a problem with loading VRAM
+- look at the included source, the start of the colour bleed test is 0x2056, the DMA transfer is set
+  up at 0x207a which then writes to the control port to start the transfer
+- I started suspecting the transfer count might be the number of read/write cycles as opposed to the
+  number of bytes, and only half the data is transferred, which would explain why the bottom half of
+  all the screens was broken but the top half looked fine
+- sure enough, checking in blastem it even prints $4600 words, but moa was subtracting 2 from the
+  count.  Changing to 1 pretty much fix all the remaining glitches, and sonic 2 now displays pretty
+  well
+
+- started implementing scrolling.  It seems the horizontal and vertical values work opposite to each
+  other.  The horizontal value needs to be subtracted.  I might also need to convert them to signed?
+- initial problem was caused by getting the mask wrong (0x3F instead of 0x3FF), but the mask is
+  required because technically games can use the extra bits for whatever they want =(
+- the background was still glitching and it turned out to be because for scroll b, I was reading
+  the scrolling data 1 byte over instead of 2 bytes over (because they are words).  That fixed
+  the glitching
+
+
+2021-12-15
+- started trying to make horizontal line scrolling work.  Turns out to not be too hard except that
+  there's a few glitches
+- one turned out to just be that i was multiplying by 2 instead of 4 for the hscroll addr
+- the other is that it's drawing the lines for scroll a and scroll b at the same time, and they
+  overlap incorrectly when the per-pixel column offset is different between the layers
+
+2021-12-20
+- looking into the hscroll and vscroll issue, I realized I wasn't adding the (vscroll % 8) value to the
+  pixel offset, which is now being added, which causes some glitches at the bottom/left of the screen,
+  but it now scrolls more smoothly in the vertical
+- there is still an issue with the hscroll, particularly when the offsets are very different, no idea
+
+- after spending the day looking into the slowdown issue, I found the issue.  I started by looking at
+  the sonic 2 disassembly looking for code that reads the controllers (ReadJoypads) and then looking
+  for where that is called from, and found the Vint_Level function which after setting some breakpoints
+  is definitely only called during gameplay but is called each frame and reads the input before updating
+  the screen.
+- looking at the code, and tracing the first few instructions where the ReadJoypads function is called
+  showed that it sometimes skipped over the various timer checks every other time it's called
+- I added the system clock time to the debug output, which showed that it was indeed ~33_200_000 ns
+  between each call to Vint_Level
+- so I turned on a debug message for the hardware interrupts and it showed the interrupt occurring
+  twice for every time the Vint_Level function is called.  After the first vint, it takes ~14ms until
+  the Vint_Level function runs... looking at what runs by tracing that period between the int and call
+  shows that it's looping while checking the status bit of the VDP, which corresponds to the vblank
+  bit, of which there is a bad implementation that just turns the bit on after 14ms ... so it is
+  definitely a problem with the vertical interrupt and vertical blanking bit timing in the VDP step
+- I had hackishly made some code to turn the blanking bit on at ~14ms, and then turn it off just before
+  the vint was triggered.  It would have worked had the frame been drawn at the 14ms mark, and then the
+  blanking bit reset at 16.6ms.  I've now changed it to be proper, in that the blanking bit is set at
+  15ms, the count is reset at 16.6ms, and the blank bit is cleared at 1.2ms
+
+2021-12-23
+- looking into the coprocessor not working.  I tried Mortal Kombat 2 and apart from something weird
+  going on during the character select screen, everything worked until combat started and then it
+  crashed due to an invalid memory access to address 0x0068eebb, which occurs at PC: 0xffff0245,
+  so something is causing it to execute ram, which is probably not what's supposed to happen
+- It looks like it's swapping stacks, and that's making it hard to trace.  At some point, it swaps
+  the stack and then does a rts, but the stack return value is invalid and that causes it to mess up.
+  It almost looks like it does put a valid return on the stack but then unintentionally overwrites it
+  due to overlapping memory areas (I could just be tracing this wrong).  I'll come back to this later
+
+2021-12-26
+- looking into the scroll black bits, I checked the scroll table for Sonic2 in BlastEm and the values
+  are clearly different for Scroll B.  The values in BlastEm are close to 0xffff but the ones in Moa
+  are 0x10f2, 0x11f2, etc.  And it's wrong in the source ram (0xffe000 which is copied to 0xfc00 in VRAM)
+- I added watcher debug commands to watch for modifications to a given memory location, and used that
+  to watch 0xffe322, which is an scroll value for Scroll B in an area near the end of the hscroll table
+  where the scroll value is different from BlastEm.
+- breakpoint occurs at 0xc670 where that value is written to.  The function starts at 0xC57E and
+  calculates scroll values.
+- so far I'm suspecting the DIV followed by the EXTW at 0xc62a might be doing something incorrect,
+  and then when it adds the result in %d0 to %d3 before using that as the scroll value, it's adding
+  too large a value (that should have been cut off to a word)
+- there was indeed a problem with the div.  It's a signed div but the division was unsigned.  Now
+  the scroll values look about right, but the black glitches are still there
+- turns out it was that the scroll values were inverted.  The hscroll values are supposed to be the
+  offset *per line*, so you use the same hscroll value for every line.  It's the vscroll value that
+  has to be looked up for ever column, so swapping the vscroll and hscroll between the inner and
+  outer loops fixed the issue perfectly.  Kind of odd that it wasn't more broken when inverted
+
+- now I've noticed there's a scroll problem in Ren & Stimpy.  Every other cell's hscroll is 0
+- looks like address 0x264 is the start of the transfer to the hscroll table in vram
+  0x83e2 is the function that calls 0x244.  244 sets up the transfer and 83e2 sends the data
+- the auto-increment is set to 0x20 which leaves that 0 in between, but after thinking about it more,
+  I realized that's correct, and that it's actually 32 bytes (16 words) between each scroll value,
+  The bug was in the hscroll function which I didn't actually fix properly.  I modified it to
+  multiply the line by 4 instead of 2, but I also needed to shift to the hcell value by 5 instead
+  of 4 (multiply by 32 instead of 16) to get the proper base scroll
+  Now, Ren & Stimpy works, and Sonic 2's Scroll B actually looks right
+
+
+2021-12-30
+- rewrote the main drawing functions to go pixel by pixel through the whole image and determine what
+  colour that pixel should be.  It's a lot slower, but it's more accurate, and makes it possible
+  to more properly implement the priority shadow/highlight modes
+
+
+2021-12-12
+- this is when I committed the audio support, but I'm not sure when I started.  It was a little earlier
+- cpal uses a callback to get the next buffer of data, so the buffer needs to be assembled outside of
+  the callback, with each device creating a Source with a buffer, that the mixer/output can draw upon
+- initially I had it give an iterator to load the buffer, but that doesn't work for ym2612 generation
+  because it itself needs to mix a bunch of sources together to get the output buffer
+- I made it use a circular buffer so that unused data can be skipped to keep the simulation in sync
+- from various glitches I was able to get it to playback tones smoothly, with only the occasional pop
+
+
+2022-01-17
+- finally have done more, added the various register locations to set the frequency of the operators,
+  and added a way to combine the samples according to the algorithm of ops to get sound
+- had to add `.reset()` to start from the beginning when a note is played, in order to prevent clicks
+  from the waveform all of a sudden jumping in level when the note starts
+- started adding a binary to control just the ym2612 for testing, so I can isolate issues, and a lot
+  of minor issues have turned up
+
+2022-01-18
+- some kind of buffer problem causing clicking, where the waveform resets, possibly related to circular
+  buf
+- a quick attempt at fixing it shows that the audio source buffer is only copied to the mixer buffer
+  when it's written to the buffer (and overfills).  Attempt to not write to the buffer means audio stops
+  when the source buffer is full
+
+2022-01-24
+- finally took another look and the glitching turned out to be an issue with the buffer size where the
+  check before the audio devices write only account for one channel of audio instead of two, so the
+  buffer was over filling.  Dividing the available buffer size by 2 fixed it
+
+
+General Work
+============
+
+2022-10-08
+- I replaced the circular buffer with queues of audio frames, which might be less able to handle time
+  dialation, but which uses fewer locks for less time, which seems to improve the occasional dropout
+  glitches.  The next frame is also assembled by whichever sim audio source that pushes data sees
+  the queue is empty (audio frame taken by the output callback), so it then assembles the next frame
+  and pushes it to the queue.  It definitely works better, but there are still some timing issues
+- the PCM data in ym2612, looking at the recording of the waveform, shows it's offset by a bias, which
+  probably shouldn't be.  The other audio sounds distorted but still sort of sounds like what it should,
+  so I don't think it's too far off
+
+2023-03-25
+- trying to improve the performance.  It seems to be at about 20 to 30 fps on firefox but 60 fps on
+  chrome and I'm not sure why the difference.
+- I tried a change that allows the frontend to request a pixel encoding format so it doesn't have to
+  change it after the fact, but that doesn't seem to help much, or possibly even hurt performance a
+  bit, but it's hard to know with just flamegraph.
+
+- without knowing the tricks that games might use, it's hard to really optimize the ym7101 code,
+  which is taking up the most time per loop.  The game might change the colour palette during the
+  update, for example.
+- that said, I'm actually just updating the whole frame at a time instead of drawing lines
+  individually, with steps in between so the game can do those tricks...  and I don't see a lot of
+  issues with colour glitches and stuff
+
+2023-04-22
+- I'm back to trying to get the ym2612 emulation working properly for the Genesis
+
+2023-04-23
+- I managed to get the idea of the envelope implemented but it's clearly very broken and I don't
+  know why exactly.  It could easily be the waveform generators or bugs or anything else.  I have
+  already found and fixed a number of bugs, so there are probably more
+
+2023-04-24
+- I added a print statement to blastem to see how the envelope value was varying over time based on
+  the envelope state and what update cycle it was in.  In moa, it shows the envelope output varying
+  over many many update cycles which I thought was maybe wrong, and the decay was only lasting one
+  cycle
+- It turned out blastem showed the same output varying over many cycles, so that wasn't a problem,
+  but it showed the decay lasting many cycles too
+- it also showed the envelope output being up to 4092 instead of ~1024 and I didn't notice until now
+  but there's a comment that blastem is using a 12 bit number in two parts, 8 bits and 4 bits, but I
+  don't yet know how it uses those numbers to get the output
+- the decay lasting only one cycle turned out to be a bug where I was masking the wrong bits and
+  shifting them away, so it was always 0.
+- there was also a bug in that the raw values from the registers needs to be adjusted to make it
+  comparable to the envelope, and the total level also needs to be adjusted (which I was already
+  doing but it's a 10 bit value)
+- it looks like the release rate also needs to be adjusted.  It should be shifted left and
+  incremented to make it the same as the other rates
+
+- after messing with it, it still didn't seem to work, and it still doesn't work correctly, but
+  changing from a sine wave generator to a square wave generator made it go from being muddled and
+  mute sounding to sounding crisp and much closer to what it's supposed to sound like
+
+- in order to match the way I did the rates, I modified the frequency setting code to store the
+  fnumber and block in the operators themselves, and used the cached registers to update the values
+  whenever either of the sets of registers was updated.  It previously only updated the frequency if
+  the A0 registers were written, so it was multiple octaves lower than it should have been
+- now it actually sounds pretty close for the high pitch tones, but the base tones are completely
+  missing
+
+2023-05-03
+- it still doesn't sound quite right but it's much better.  The drum sounds are provided by the DAC
+  which explains why they aren't working properly.  The DAC is not synchronized to the FM output
+  because the fm output is generated in 1 millisecond batches, so I'll have to change that
+- one of the issues that came up was that in C code that has the attack calculation, the same as
+  detailed on page 28 of the Nemesis forum posts, the result is different.  It turns out C is using
+  arithmetic shift right instead of logical shift right, despite the types of the inputs being
+  unsigned explicitly, however in rust, it will use the appropriate operation based on the sign of
+  the strongly typed numbers, so unsigned shift right will insert 0s in the upper bits, which makes
+  the number result be bigger than the previous version, so the attack phase ends on the first pass.
+  Forcing the numbers to be signed for the shift in Rust makes it sign-extend the number (insert 1s
+  because the upper bit is 1), so the number is negative.  Even an unsigned addition will result in
+  the correct number at the end.  It's just that shift that caused the issue
+
+2023-05-06
+- I replaced the controller, keyboard, and mouse updaters with queues to make it easier to implement
+  I/O devices, and avoid some of the mutablility and timing issues of the old updaters.
+  Unfortunately I can't easily add time to those queues because webassembly doesn't support
+  std::time.  There's another type called instant::Instant which I've used in the pixels frontend
+  because it does work with webassembly, but it's a bit uncomfortable.  I'd rather not integrate
+  that into the core crate, which makes me want to not put the mixer in core but keep it in common,
+  where the `instant` dep is isolated to a smaller area
+- this all started because I was trying to add a web controller, which I still haven't added due to
+  mutability and references with the pixels frontend
+
+- for some reason, the new rust updater that calls `set_timeout` doesn't work too well in chrome,
+  making the fps drop down to 47-50 instead of 60.  I'm not sure if that's because the older js
+  version does some funny clock stuff or if the concept itself adds a lot of overhead for some as
+  yet unknown reason
+
+2023-05-08
+- audio works in Sonic1.  Mortal Kombat 2 has a bit of audio, but periods of silence where it's
+  clearly turning notes on and off and changing frequencies, but nothing is coming out.  Then every
+  other has silence but they seems to write to the ym2612 registers with note on/off (reg 0x28), and
+  total level or frequency changes which make sense for audio to be playing but nothing.  I had sort
+  of suspected the coprocessor communication until I printed the register set values which clearly
+  shows audio is being requested but nothing is produced, so still some big issues with the ym2612
+- looking at earthworm jim, it's sending a lot of commands to the 0x40s on bank 0 and 1, which
+  doesn't make a heck of a lot of sense to be changing the volume level but nothing else all the
+  time.  It doesn't seem to set the initial frequencies.  So it's possible that a bug in the Z80
+  code is making it run incorrectly and thus not producing correct register commands to the ym2612
+
+2023-05-16
+- I spent a bunch of time getting the Z80 tests running and fixing bugs in the implementation.  It's
+  generally gone well.  I started with 45% of the tests passing with all checks, 60% with the
+  undocumented flags ignored, 83% with undocumented instructions also ignored, and timing wasn't
+  even checked.  It's now 98% passing with undocumented instructions and timing checks, but is still
+  only 65% passing on all tests
+- Now that I added timings to the Z80, and fixed instructions, Sonic 1 has the drums in the intro,
+  but there's still no bass, and it still sounds incorrect in spots.  But most other games still
+  have no sound which is baffling
+- it must be a problem with either the bus architecture in the genesis, or a probably with the
+  CPU/coproc interface, banking, etc
+
+2023-05-27
+- turns out the tests for the ASL and ASR instructions are known to be incorrect, and there is no
+  fix as of yet.  https://github.com/TomHarte/ProcessorTests/issues/21
+- I starting working on a test running for computie to verify the tests on hardware, and possible
+  make some equivalent tests for 68010 and 68030, but it might be tricky because computie has the
+  flash chip in the lower area of memory, where the tests put the instructions and stack, but it
+  looks like they have use the same values, so it might be possible to search for them in all the
+  test values and modify anything that's within 0x100 bytes of 0xc00 (instruction) and 0x800
+  (stack).
+
+2023-06-04
+- it also turns out that there were many updates to the tests since I downloaded them in September,
+  and for some reason I didn't check until now.  After I got a test program running against real
+  hardware, running on computie with a python script and a sqlite3 database to record the test
+  results.  It isn't the best because a jump or exception-causing instruction can't be tested, so
+  really I would need custom hardware, or I'd need to use Fidget to hook into the SBC Rev.2 board
+  with the address select chip out of the socket, and a custom verilog config that would allow it
+  to control and intercept the CPU and thus know exactly what address it tries to access immediately
+  after the instruction is directly fed to it.  Custom hardware would be simpler, but if I get off
+  my ass and learn verilog, I could do it with stuff i have now.
+- But... yeah, maybe most of that wasn't needed because some of the tests are already fixed.
+  Running against the latest tests, excluding address errors, 99% pass.  All the rotate and logical
+  shift instructions pass now, but there are lots but fewer than before failures for the asl and
+  asr instructions, some movem and movep errors and some bcd instruction errors, mostly
+
+2024-03-02
+- I'm trying to extract the memory/bus interface, and pass it in at the start of each cycle instead
+  of having the BusPort permanently embedded, which will allow migrating to emulator-hal.
+
+- The functional way would be argument drilling; passing an extra argument to each function in the
+  entire execution core.  The problem is that it's messy, so a solution that is still functional is to
+  implement all of the execution logic on a newtype that contains a reference to the mutable state and
+  the owned cycle data, and at the end of the cycle, decompose the M68kCycleGuard that holds the
+  reference, and keep the cycle data for debugging purposes.
+
+- So far it's going quite well.  I really like the pattern of making the cycle be like a transaction,
+  and making it possible to decompose it, especially for testing.  I still need to fix the tests
+- next step is to push System up from the interrupt handling code
+
+2024-03-10
+- the emulator-hal conversion is going well.  I'm thinking it makes more sense for the Address of
+  BusAccess to be a generic instead of an associated type, but I'll need to finish converting
+  everything to get a better sense of it.  There's a lot of cleanup to do
+
+2024-03-14
+- I finally took a look at a flamegraph of the harte_test runner, and almost the entirety of the time
+  spent running tests was in zeroing of the array of memory at the start of each test.  I really
+  should use MaybeUninit, but I instead used Vec::with_capacity/.set_len().  It went from 15-24 minutes
+  down to 6 seconds.
+
