@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+members = [
+    "emulator/core",
+    "emulator/frontends/common",
+    "emulator/frontends/console",
+    "emulator/frontends/minifb",
+    "tests/harte_tests",
+    "tests/rad_tests"
+]
+exclude = [
+    "emulator/frontends/pixels",
+    "emulator/frontends/macroquad",
+    "emulator/libraries/femtos",
+    "emulator/libraries/emulator-hal",
+]
+default-members = ["emulator/frontends/minifb"]
+
+[profile.dev]
+opt-level = 3
+
+[profile.release]
+debug = true
+# TODO there are many overflow errors, which could be bugs
+#overflow-checks = true
+

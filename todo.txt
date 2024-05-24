@@ -1,0 +1,165 @@
+
+* decide if you should continue expecting Instant to usable through the trait alone, despite issues
+* fix it to use the full 68k address space, and maybe see if it's possible to make the address translation cleaner/nicer/simpler/faster
+* now that you have Instant as generic in m68k, try making it an associated type to see if it's possible to hide it away
+
+* try using the debug and inspect traits elsewhere in moa
+* convert all code to use fmt::Writer instead of println
+
+* figure out how to do interrupts, and add them to emulator-hal, implement them in m68k
+* convert the Z80
+* convert peripherals to use BusAccess and Step
+* replace Addressable/Steppable and modify Transmutable to use the emulator-hal traits
+* remove the custom moa impls from m68k if possible at this point
+* publish the emulator-hal crate
+* publish the m68k and z80 crates
+
+
+* it doesn't work when using debug due to math checks, so fix them
+
+-----
+
+* add pub use for all the pub types to the lib.rs of the m68k crate
+
+* there are many issues with the coprocessor address space, and the VDP
+* I mapped the sn sound chip into 0xC00010, in the middle of the VDP's address space, and didn't get a runtime error!!! needs fixing
+* there should be a better way of aliasing addresses.  Can you make the actual Z80 bus get mapped into 0xA00000?
+* turn on warnings about unmapped addresses being accessed
+
+* could have a trait with more housekeeping-type functions, like querying, adding, removing child devices, maybe registering them even
+* if you make Bus device just another device, then the coproc bus can be bridged to the main bus of genesis
+* the macintosh mainboard has no way of changing the layout if the bus is a generic device (it swaps memory around based on an I/O bit)
+* there needs to be a way of doing disparate reads or aliased reads... the sn sound chip being mapped into VDP memory is not the best
+
+* what if, to allow a device to have multiple steppable functions, you pass the system in, or otherwise provide some mechanism for
+  each device to create sub devices which are scheduled independently
+* should it be possible to reschedule multiple events at different intervals to reduce the times a given step function is called?  Some have
+  multiple clocks, or multiple things at different clocks, and making them each an event would mean they could be smaller and faster, but at
+  the cost of having more events on the queue when re-scheduling.  There needs to be a mechanism to avoid the event queue ballooning due to
+  an error
+* can you somehow make devices have two step functions for running things at different times? (I'm thinking ym2612 audio gen vs timers)
+* the genesis coprocessor stuff will be a good reference point for things that make multiple devices, and how to add them correctly to the system
+
+* make Signal directional, by making SignalDriver and SignalInput or SignalReceiver
+
+* address repeater on ym2612 doesn't seem to work the same, when it's on the 68000 device.  The Z80 device doesn't have an affect, but maybe it's not being used
+
+
+* fix the m68k timings
+* add rust runtime checks for math to look for overflow errors
+* fix the watchers in the Bus, maybe make them manual
+* make it possible to compile without audio support (minifb frontend requires it atm)
+* can you make it so you don't need borrow_mut() so much?
+
+
+
+* make the keys easier to config...
+
+* modify cpal code to skip audio until caught up
+* AudioFrame (and possibly the mixer and source) should be moved to the core, it should probably have the sample rate
+* split AudioOutput into a sender and receiver
+* can you eliminate the source-to-mixer queues?
+* add audio support to the console, but it needs to be conditionally compilable so that audio can be disabled (computie doesn't need it, only genesis)
+* sound doesn't work on a lot of games... is it a problem with the Z80 accessing the YM2612, or the lack of YM timers? or something else?
+* make the ym generate audio in sync so the DAC timings can be more accurate
+* add stereo output to ym2612
+* you need to scale the output sample to be +/- 1.0 instead of 0-1.0
+* fix ym2612 sound generation (no bass, no LFO, etc)
+
+
+* the interrupt controller stuff is really not good.  It should be more like busport, and connected to a device at startup (eg. create
+  interrupt controller, then create objects that use that controller and pass in values, maybe an option so that the controller doesn't
+  have to be hooked up, meaning hardware interrupts would not be used.
+
+* should you make Address a newtype and add From impls for each type of numeric, and add utils to wrap address at certain boundaries and such
+* should you make a means of storing different kinds of buses?
+* should you make buses hide their RcRefCell?
+
+
+* add doc strings everywhere
+* get rustfmt, rustdoc, and clippy working in some kind of semi-automatic fashion
+
+* you really need a full web-based debugger
+
+
+
+Web Assembly:
+
+    * can you make the web interface nicer with like... a picture of a genesis or something
+    * for some unknown reason, the js-based updater works much better than the rust based one, but the rust based one just goes back to
+      a fixed time per loop instead of trying to speed up
+    * clean up pixels frontend
+
+
+System/Traits:
+
+    * maybe I should make ClockDuration use picos as the base instead, and use u64 since that gives like 212 days or something instead of 5h
+      and should prevent split nanoseconds which is the main concern
+
+    * add opentelemetry if it can be wasm compatible, or some kind of timing for giving an average framerate
+    * can you make the connections between things (like memory adapters), be expressed in a way that's more similar to the electrical design?
+      like specifying that address pins 10-7 should be ignored/unconnected, pin 11 will connect to "chip select", etc
+
+    * should you simulate bus arbitration?
+    * interrupts could be done in a better way
+    * need a better way of handling disparate reads/writes to I/O spaces, rather than having multiple devices or having a massive chunk of address space allocated, continuously
+    * should you modify Addressable to also take the absolute address as input?  I'm thinking of how the same device could be mapped to multiple addresses in memory instead
+      of taking up a whole range of addresses
+    * you could modify read()/write() in Addressable to return the number of bytes read or written for dynamic bus sizing used by the MC68020+
+
+    * add ability to serialize/deserialize state into something, so it can be restored... (maybe not worth it though)
+
+
+Debugger:
+
+    * the debug dump things should not used the clocked addressing, but use a debugging mode thing of some kind so as not to influence the sim state
+
+    * i need a way to debug only the cpu and not the coprocessor, but that's tricky without a way to id or compare Transmutables
+    * add a way to delete a watcher
+    * get stack tracing working again, but can you do it with just data?
+    * how can you improve the debugger?
+    * debugger could maybe even allows arrows left/right for editing, and up/down for history
+
+
+Genesis/Mega Drive:
+
+    * the 68000/Z80 bank switching is probably buggy
+    * the H/V counters are not accurate because it seems to count at different speeds in the blanking period (time vs return value numbers don't divide properly)
+    * make the ym7101 set/reset the v_int occurred flag based on the interrupt controller
+
+    * there is an issue with Mortal Kombat 2 where it will crash randomly at the start of a fight.  The code is actually swapping
+      stacks a bunch of times, and at some point, the stack is corrupted or something and it `rts`s to the wrong address...
+
+    * add support for the sprite overflow flag (low priority)
+    * still possibly a bug with the shadow/highlight colours
+
+
+Macintosh:
+
+    * issues when booting the rom, attempt to write to rom during the driver init/open phase
+    * for the address bus/repeating thing in the mac with the rom and ram, can you make it work for both the 128 and 512
+
+
+68000:
+
+    * for 68k impl, I want to make some kind of memory transaction object that does everything in a contained but logical way, including handling exception
+      information needed about the last access, and adjusting the pre/post inc/dec
+
+    * unimplemented:  BFFFO, BFINS, NBCD, RTD
+    * >=MC68020 undecoded & unimplemented: BKPT, CALLM, CAS, CAS2, CHK2, CMP2, RTM, PACK, TRAPcc, UNPK
+
+    * add support for MMU
+    * add support for FPU
+    * Coprocessor instructions: cpBcc, cpDBcc, cpGEN, cpScc, cpTRAPcc
+
+
+Z80:
+
+    * unimplemented: CPD, CPDR, CPI, CPIR, DAA, IND, INDR, INI, INIR, INic, INx, OTDR, OTIR, OUTD, OUTI, OUTic, OUTx
+
+Synth:
+
+    * add mouse support to synth app
+
+* can you eventually make the system connections all configurable via a config file?
+
