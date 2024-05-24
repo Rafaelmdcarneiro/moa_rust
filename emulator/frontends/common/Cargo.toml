@@ -1,0 +1,21 @@
+[package]
+name = "moa-common"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+tty = ["nix"]
+audio = ["cpal"]
+
+[dependencies]
+log = "0.4"
+femtos = "0.1"
+moa-core = { path = "../../core" }
+moa-host = { path = "../../libraries/host" }
+nix = { version = "0.28", optional = true, features = ["term", "fs"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cpal = { version = "0.15", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+cpal = { version = "0.15", optional = true, features = ["wasm-bindgen"] }

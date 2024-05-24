@@ -1,0 +1,31 @@
+[package]
+name = "moa-pixels"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+log = "0.4"
+pixels = "0.13"
+winit = "0.28"
+femtos = "0.1"
+
+moa-core = { path = "../../core" }
+moa-common = { path = "../common", features = ["audio"] }
+moa-host = { path = "../../libraries/host" }
+
+moa-systems-genesis = { path = "../../systems/genesis" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1"
+console_log = "1.0"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = "0.3"
+wgpu = { version = "0.16", features = ["webgl"] }
+instant = { version = "0.1", features = [ "wasm-bindgen" ] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+env_logger = "0.10"
+pollster = "0.3"
+instant = "0.1"
+
