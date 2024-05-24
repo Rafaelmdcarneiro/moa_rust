@@ -1,0 +1,12 @@
+[package]
+name = "moa-peripherals-yamaha"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+log = "^0.4"
+femtos = "0.1"
+moa-core = { path = "../../core" }
+moa-host = { path = "../../libraries/host" }
+moa-audio = { path = "../../libraries/audio" }
+lazy_static = "1.4.0"
