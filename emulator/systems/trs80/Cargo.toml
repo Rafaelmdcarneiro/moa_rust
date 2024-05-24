@@ -1,0 +1,12 @@
+[package]
+name = "moa-systems-trs80"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+log = "0.4"
+femtos = "0.1"
+moa-core = { path = "../../core" }
+moa-host = { path = "../../libraries/host" }
+moa-z80 = { path = "../../cpus/z80" }
+
