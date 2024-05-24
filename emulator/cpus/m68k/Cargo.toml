@@ -1,0 +1,19 @@
+[package]
+name = "moa-m68k"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+log = "0.4"
+thiserror = "1.0"
+femtos = "0.1"
+moa-parsing = { path = "../../libraries/parsing" }
+emulator-hal = { path = "../../libraries/emulator-hal/emulator-hal", features = ["femtos"] }
+
+moa-core = { path = "../../core", optional = true }
+
+[dev-dependencies]
+emulator-hal-memory = { path = "../../libraries/emulator-hal/emulator-hal-memory" }
+
+[features]
+moa = ["moa-core"]

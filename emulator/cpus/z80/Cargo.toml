@@ -1,0 +1,12 @@
+[package]
+name = "moa-z80"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+log = "0.4"
+thiserror = "1.0"
+femtos = "0.1"
+moa-core = { path = "../../core" }
+moa-signals = { path = "../../libraries/signals" }
+emulator-hal = { path = "../../libraries/emulator-hal/emulator-hal" }
